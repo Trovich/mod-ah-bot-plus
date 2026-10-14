@@ -52,6 +52,9 @@ AuctionHouseBot::AuctionHouseBot() :
     CompleteItemValueOverrideEnabled(false),
     CompleteItemValueOverrideDoApplyBidVariations(false),
     CompleteItemValueOverrideDoApplyBuyoutVariations(false),
+    PriceTableEnabled(false),
+    PriceTableDoApplyBuyoutVariations(true),
+    PriceTableEraMultiplier{ 1.0f, 1.0f, 1.0f },
     BuyoutVariationReducePercent(0.15f),
     BuyoutVariationAddPercent(0.25f),
     BidVariationHighReducePercent(0),
@@ -308,6 +311,41 @@ void AuctionHouseBot::CalculateItemValue(ItemTemplate const* itemProto, uint64& 
         }
     }
 
+    // Era price table: what the item cost in the expansion it was added in
+    if (PriceTableEnabled == true)
+    {
+        auto priceTableIt = PriceTableByItemID.find(itemProto->ItemId);
+        if (priceTableIt != PriceTableByItemID.end())
+        {
+            double eraPrice = double(priceTableIt->second.Price) * PriceTableEraMultiplier[priceTableIt->second.Era];
+            if (eraPrice < 1.0)
+                eraPrice = 1.0;
+            if (eraPrice > MaxBuyoutPriceInCopper)
+                eraPrice = MaxBuyoutPriceInCopper;
+            outBuyoutPrice = uint64(eraPrice);
+
+            if (PriceTableDoApplyBuyoutVariations == true)
+                outBuyoutPrice = urand(outBuyoutPrice * (1.0f - BuyoutVariationReducePercent), outBuyoutPrice * (1.0f + BuyoutVariationAddPercent));
+
+            if (outBuyoutPrice > MaxBuyoutPriceInCopper)
+                outBuyoutPrice = MaxBuyoutPriceInCopper;
+
+            // If variance brought price below sell price, bring it back up to avoid making money off vendoring AH items
+            if (BuyoutBelowVendorVariationAddPercentEnabled == true && outBuyoutPrice < itemProto->SellPrice)
+            {
+                float minLowPriceAddVariancePercent = 1.0f + BuyoutBelowVendorVariationAddPercent;
+                outBuyoutPrice = urand(itemProto->SellPrice, minLowPriceAddVariancePercent * itemProto->SellPrice);
+            }
+
+            float sellVarianceBidPriceTopPercent = 1.0f - BidVariationHighReducePercent;
+            float sellVarianceBidPriceBottomPercent = 1.0f - BidVariationLowReducePercent;
+            outBidPrice = urand(sellVarianceBidPriceBottomPercent * outBuyoutPrice, sellVarianceBidPriceTopPercent * outBuyoutPrice);
+
+            if (outBuyoutPrice == 0)
+                outBuyoutPrice = 1;
+            return;
+        }
+    }
 
     // Start with a buyout price related to the sell price, if configured
     if (UseItemSellPriceIfHigherThanPriceMinimumCenterBase == true)
@@ -1966,6 +2004,17 @@ void AuctionHouseBot::InitializeConfiguration()
     CompleteItemValueOverrideDoApplyBidVariations = sConfigMgr->GetOption<bool>("AuctionHouseBot.CompleteItemValueOverride.DoApplyBidVariations", false);
     CompleteItemValueOverrideDoApplyBuyoutVariations = sConfigMgr->GetOption<bool>("AuctionHouseBot.CompleteItemValueOverride.DoApplyBuyoutVariations", false);
 
+    // Era price table
+    PriceTableEnabled = sConfigMgr->GetOption<bool>("AuctionHouseBot.PriceTable.Enabled", false);
+    PriceTableDoApplyBuyoutVariations = sConfigMgr->GetOption<bool>("AuctionHouseBot.PriceTable.DoApplyBuyoutVariations", true);
+    PriceTableEraMultiplier[0] = sConfigMgr->GetOption<float>("AuctionHouseBot.PriceTable.EraMultiplier.Original", 1.0f);
+    PriceTableEraMultiplier[1] = sConfigMgr->GetOption<float>("AuctionHouseBot.PriceTable.EraMultiplier.TBC", 1.0f);
+    PriceTableEraMultiplier[2] = sConfigMgr->GetOption<float>("AuctionHouseBot.PriceTable.EraMultiplier.WotLK", 1.0f);
+    for (float& eraMultiplier : PriceTableEraMultiplier)
+        if (eraMultiplier <= 0.0f)
+            eraMultiplier = 1.0f;
+    LoadPriceTable();
+
     // Buyer & Seller core properties
     SetCyclesBetweenBuyOrSell();
     ReturnExpiredAuctionItemsToBot = sConfigMgr->GetOption<bool>("AuctionHouseBot.ReturnExpiredAuctionItemsToBot", false);
@@ -2607,6 +2656,43 @@ void AuctionHouseBot::PopulateVendorItemsPrices()
                 vendorItemsPrices[itemID] = itemPrice;
         } while (result->NextRow());
     }
+}
+
+void AuctionHouseBot::LoadPriceTable()
+{
+    PriceTableByItemID.clear();
+    if (PriceTableEnabled == false)
+        return;
+
+    // Querying a table that does not exist aborts the server, so look it up first
+    if (!WorldDatabase.Query("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mod_ahbot_item_price'"))
+    {
+        LOG_ERROR("module", "AuctionHouseBot: PriceTable is enabled but table mod_ahbot_item_price does not exist, prices will be calculated instead");
+        return;
+    }
+
+    QueryResult result = WorldDatabase.Query("SELECT item, era, price FROM mod_ahbot_item_price");
+    if (!result)
+    {
+        LOG_ERROR("module", "AuctionHouseBot: PriceTable is enabled but mod_ahbot_item_price is empty, prices will be calculated instead");
+        return;
+    }
+
+    do
+    {
+        Field* fields = result->Fetch();
+        uint32 itemID = fields[0].Get<uint32>();
+        uint8 era = fields[1].Get<uint8>();
+        uint32 price = fields[2].Get<uint32>();
+        if (era >= AHB_PRICE_TABLE_ERA_COUNT || price == 0)
+        {
+            LOG_ERROR("module", "AuctionHouseBot: mod_ahbot_item_price row for item {} has era {} and price {}, skipped", itemID, uint32(era), price);
+            continue;
+        }
+        PriceTableByItemID[itemID] = { price, era };
+    } while (result->NextRow());
+
+    LOG_INFO("module", "AuctionHouseBot: Loaded {} era prices from mod_ahbot_item_price", PriceTableByItemID.size());
 }
 
 void AuctionHouseBot::CleanupExpiredAuctionItems()

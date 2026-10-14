@@ -109,6 +109,38 @@ AuctionHouseBot.CompleteItemValueOverride.DoApplyBidVariations = false
 AuctionHouseBot.CompleteItemValueOverride.DoApplyBuyoutVariations = false
 
 ###############################################################################
+#    AuctionHouseBot.PriceTable.Enabled
+#        Enable/Disable taking item prices from the world database table
+#        mod_ahbot_item_price, which holds the price of one unit of each item
+#        as it was in the expansion the item was added in (original items at
+#        2006 prices, TBC items at 2007-2008 prices, WotLK items at 2009-2010
+#        prices).  An item found there skips every other price calculation
+#        below, including advanced pricing; an item not found there is priced
+#        the usual way.  CompleteItemValueOverride.Items still wins over the
+#        table.  The table is re-read by ".ahbot reload".
+#    Default: false (disabled)
+#
+#    AuctionHouseBot.PriceTable.DoApplyBuyoutVariations
+#        If true, BuyoutVariationReducePercent and BuyoutVariationAddPercent
+#        below spread the listed buyout around the table price.  The bid
+#        variations always apply.
+#    Default: true
+#
+#    AuctionHouseBot.PriceTable.EraMultiplier.Original
+#    AuctionHouseBot.PriceTable.EraMultiplier.TBC
+#    AuctionHouseBot.PriceTable.EraMultiplier.WotLK
+#        Multiplies every table price of that expansion's items, to make one
+#        expansion's economy cheaper or more expensive as a whole.
+#    Default: 1.0
+###############################################################################
+
+AuctionHouseBot.PriceTable.Enabled = false
+AuctionHouseBot.PriceTable.DoApplyBuyoutVariations = true
+AuctionHouseBot.PriceTable.EraMultiplier.Original = 1.0
+AuctionHouseBot.PriceTable.EraMultiplier.TBC = 1.0
+AuctionHouseBot.PriceTable.EraMultiplier.WotLK = 1.0
+
+###############################################################################
 #    AuctionHouseBot.AdvancedListingRules.UseDropRates.Enabled
 #        Enable/Disable the Seller using items' in-game drop rates from Enemies
 #        and GameObjects to determine the probability of listing them on the AH.

@@ -116,6 +116,15 @@ public:
     ObjectGuid::LowType CharacterGUID;
 };
 
+// Expansion an item was added in, as stored in mod_ahbot_item_price.era
+#define AHB_PRICE_TABLE_ERA_COUNT 3
+
+struct AuctionHouseBotPriceTableEntry
+{
+    uint32 Price;   // buyout of one unit, in copper
+    uint8 Era;      // 0 original, 1 TBC, 2 WotLK
+};
+
 class AuctionHouseBot
 {
 public:
@@ -140,6 +149,10 @@ private:
     std::unordered_map<uint32, uint64> CompleteItemValueOverrideItemListByItemID;
     bool CompleteItemValueOverrideDoApplyBidVariations;
     bool CompleteItemValueOverrideDoApplyBuyoutVariations;
+    bool PriceTableEnabled;
+    bool PriceTableDoApplyBuyoutVariations;
+    float PriceTableEraMultiplier[AHB_PRICE_TABLE_ERA_COUNT];
+    std::unordered_map<uint32, AuctionHouseBotPriceTableEntry> PriceTableByItemID;
     float BuyoutVariationReducePercent;
     float BuyoutVariationAddPercent;
     float BidVariationHighReducePercent;
@@ -379,6 +392,7 @@ public:
     void AddNewAuctions(std::vector<Player*> AHBPlayers, FactionSpecificAuctionHouseConfig* config);
     void AddNewAuctionBuyerBotBid(std::vector<Player*> AHBPlayers, FactionSpecificAuctionHouseConfig* config);
     void PopulateVendorItemsPrices();
+    void LoadPriceTable();
     void CleanupExpiredAuctionItems();
 
     template <typename ValueType>
